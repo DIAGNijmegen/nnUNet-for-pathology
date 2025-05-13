@@ -113,5 +113,5 @@ ENV/
 
 *.model
 
-pathology_code_and_utils/installs_and_run_training.sh
+# pathology_code_and_utils/installs_and_run_training.sh
 **.DS_Store
