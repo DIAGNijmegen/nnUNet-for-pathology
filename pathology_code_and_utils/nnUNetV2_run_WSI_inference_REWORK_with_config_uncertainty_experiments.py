@@ -41,20 +41,41 @@ from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 ### CONFIG IMPORT
 #################################################################
 
-def import_config(config_module_name):
-    # Ensure that the cohort_configs directory is in the system path
-    config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inference_configs')
-    print(config_dir)
-    if config_dir not in sys.path:
-        sys.path.append(config_dir)
+def import_config(identifier):
+    """
+    Load a config module either by:
+      1. Full path to a .py file
+      2. Config name (no slashes), loaded relatively from inference_configs/
+    
+    Both paths ultimately use importlib.import_module, so they return
+    the same module object if the file/module is the same.
+    """
+    identifier_path = Path(identifier)
+    
+    # --- Decide base directory and module name ---
+    if identifier_path.suffix == ".py" or identifier_path.is_absolute() or len(identifier_path.parts) > 1:
+        # Option 1: Full path
+        config_path = identifier_path.resolve()
+        if not config_path.is_file():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        base_dir = str(config_path.parent)
+        module_name = config_path.stem
+    else:
+        # Option 2: Config name
+        base_dir = str(Path(__file__).resolve().parent / "inference_configs")
+        module_name = identifier
 
+    # --- Ensure the base directory is in sys.path ---
+    if base_dir not in sys.path:
+        sys.path.append(base_dir)
+
+    # --- Import the module ---
     try:
-        config = importlib.import_module(config_module_name)
+        return importlib.import_module(module_name)
     except ModuleNotFoundError:
-        print(f"Configuration module {config_module_name} not found in configs folder.")
-        sys.exit(1)
-
-    return config
+        raise ModuleNotFoundError(
+            f"Config module '{module_name}' not found in '{base_dir}'"
+        )
 
 if len(sys.argv) != 2 and len(sys.argv) != 8:
     print("\n\n\nINCORRECT FUNCTION CALL: \nPlease provide a config stem as argument and optionally the input and output paths")
