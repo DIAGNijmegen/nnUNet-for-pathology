@@ -77,6 +77,7 @@ if output_img is not None and output_unc_ce is not None and output_unc_kl is not
     # Should have same parent
     assert Path(output_img).parent == Path(output_unc_ce).parent == Path(output_unc_kl).parent == Path(output_unc_entropy).parent, "Output paths should have the same parent, since this is where the runtime files are stored"
 output_folder = config.output_folder if len(sys.argv) == 2 else Path(output_img).parent
+output_folder = Path(output_folder)
 local_output_folder = Path('/tmp/workdir')
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(local_output_folder, exist_ok=True)
@@ -179,6 +180,16 @@ def softmax_list_and_mean_to_uncertainties(softmax_list, softmax_mean):
     uncertainty_entropy = uncertainty_entropy_unnormalized / np.log(num_classes)
 
     return uncertainty_disagreement_ce, uncertainty_disagreement_kl, uncertainty_entropy
+
+def log_transform_from_float_to_uint8(arr, epsilon=1e-8):
+    arr = np.array(np.clip(arr, 0, 1))  # ensure values are in [0,1]
+    transformed = np.log1p(arr / epsilon) / np.log1p(1 / epsilon) # seems difficult, but is simply a stabalized log transform
+    return (transformed * 255).astype(np.uint8)
+
+# def inverse_log_transform_from_uint8_to_float(arr_uint8, epsilon=1e-8):
+#     arr = np.array(arr_uint8, dtype=np.float32) / 255.0
+#     original = epsilon * (np.expm1(arr * np.log1p(1 / epsilon)))
+#     return original.clip(0, 1)  # Ensure values are in [0,1]
 
 def get_trim_indexes(y_batch):
     """
@@ -326,7 +337,6 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
     
     ### CHECK IF WE NEED TO PROCESS THIS FILE
     wsm_path = output_folder / (image_path.stem + '_nnunet.tif') if output_img is None else Path(output_img)
-    # wsu_path = output_folder / (image_path.stem + '_uncertainty.tif') if output_mask is None else Path(output_mask)
     wsu_ce_path = output_folder / (image_path.stem + '_ce_disagreement_uncertainty.tif') if output_unc_ce is None else Path(output_unc_ce)
     wsu_kl_path = output_folder / (image_path.stem + '_kl_disagreement_uncertainty.tif') if output_unc_kl is None else Path(output_unc_kl)
     wsu_entropy_path = output_folder / (image_path.stem + '_entropy_uncertainty.tif') if output_unc_entropy is None else Path(output_unc_entropy)
@@ -362,20 +372,16 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
     # Create new writer and file
     start_time = time.time()
     wsm_writer = WholeSlideMaskWriter()  # whole slide mask
-    # wsu_writer = WholeSlideMaskWriter()  # whole slide uncertainty
     wsu_ce_writer = WholeSlideMaskWriter()  # whole slide uncertainty disagreement cross entropy
     wsu_kl_writer = WholeSlideMaskWriter()  # whole slide uncertainty disagreement kl
     wsu_entropy_writer = WholeSlideMaskWriter()  # whole slide uncertainty entropy
     # Create files
     wsm_path_local = local_output_folder / (image_path.stem + '_nnunet.tif')
-    # wsu_path_local = local_output_folder / (image_path.stem + '_uncertainty.tif')
     wsu_ce_path_local = local_output_folder / (image_path.stem + '_ce_disagreement_uncertainty.tif')
     wsu_kl_path_local = local_output_folder / (image_path.stem + '_kl_disagreement_uncertainty.tif')
     wsu_entropy_path_local = local_output_folder / (image_path.stem + '_entropy_uncertainty.tif')
     wsm_writer.write(path=wsm_path_local, spacing=real_spacing, dimensions=shape,
                     tile_shape=(output_patch_size, output_patch_size))
-    # wsu_writer.write(path=wsu_path_local, spacing=real_spacing,
-    #                 dimensions=shape, tile_shape=(output_patch_size, output_patch_size))
     wsu_ce_writer.write(path=wsu_ce_path_local, spacing=real_spacing,
                         dimensions=shape, tile_shape=(output_patch_size, output_patch_size))
     wsu_kl_writer.write(path=wsu_kl_path_local, spacing=real_spacing,
@@ -433,7 +439,6 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
             softmax_mean = np.array(softmax_list).mean(0)
             pred_output_maybe_trimmed = softmax_mean.argmax(axis=-1)-(1 if output_minus_1 else 0)
             time_post_predict = time.time()
-            time_post_predict = time.time()
             duration_predict = time_post_predict - time_pre_predict
                 # time predict end
             ###
@@ -441,11 +446,26 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
             ### Uncertainty
                 # time uncertainty start
             time_pre_uncertainty = time.time()
-            # uncertainty = softmax_list_and_mean_to_uncertainty(softmax_list, softmax_mean)
             uncertainty_disagreement_ce, uncertainty_disagreement_kl, uncertainty_entropy = softmax_list_and_mean_to_uncertainties(softmax_list, softmax_mean)
-            uncertainty_disagreement_ce_output_maybe_trimmed = np.array((uncertainty_disagreement_ce.clip(0, 4) / 4 * 255).int()) 
-            uncertainty_disagreement_kl_output_maybe_trimmed = np.array((uncertainty_disagreement_kl * 255).int())
-            uncertainty_entropy_output_maybe_trimmed = np.array((uncertainty_entropy * 255).int())
+            # uncertainty_disagreement_ce_output_maybe_trimmed = np.array((uncertainty_disagreement_ce.clip(0, 4) / 4 * 255).int()) 
+            # uncertainty_disagreement_kl_output_maybe_trimmed = np.array((uncertainty_disagreement_kl * 255).int())
+            # uncertainty_entropy_output_maybe_trimmed = np.array((uncertainty_entropy * 255).int())
+            # --- CE: clip, normalize to [0,1], scale to uint8 ---
+            uncertainty_disagreement_ce_array = uncertainty_disagreement_ce.cpu().numpy()          # tensor → NumPy
+            uncertainty_disagreement_ce_array = np.clip(uncertainty_disagreement_ce_array, 0, 4) / 4                        # normalize to [0,1]
+            uncertainty_disagreement_ce_output_maybe_trimmed = (uncertainty_disagreement_ce_array * 255).astype(np.uint8)
+
+            # --- KL: use log-based transform for better visibility/precision of small value when scaled to uint8 ---
+            uncertainty_disagreement_kl_array = uncertainty_disagreement_kl.cpu().numpy()          # tensor → NumPy
+            uncertainty_disagreement_kl_output_maybe_trimmed = log_transform_from_float_to_uint8(
+                uncertainty_disagreement_kl_array,
+                epsilon=1e-8,   # stabilizes very small KL values
+            )
+
+            # --- Entropy: already in [0,1], just scale to uint8 ---
+            entropy_array = uncertainty_entropy.cpu().numpy()             # tensor → NumPy
+            uncertainty_entropy_output_maybe_trimmed = (entropy_array * 255).astype(np.uint8)
+
             time_post_uncertainty = time.time()
             duration_uncertainty = time_post_uncertainty - time_pre_uncertainty
                 # time uncertainty end
@@ -457,8 +477,6 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
             # Reconstruct possible trim
             pred_output = np.zeros((sampler_patch_size, sampler_patch_size))
             pred_output[trim_top_idx : trim_bottom_idx, trim_left_idx: trim_right_idx] = pred_output_maybe_trimmed
-            # uncertainty_output = np.zeros((sampler_patch_size, sampler_patch_size))
-            # uncertainty_output[trim_top_idx: trim_bottom_idx, trim_left_idx: trim_right_idx] = uncertainty_output_maybe_trimmed
             uncertainty_disagreement_ce_output = np.zeros((sampler_patch_size, sampler_patch_size))
             uncertainty_disagreement_ce_output[trim_top_idx: trim_bottom_idx, trim_left_idx: trim_right_idx] = uncertainty_disagreement_ce_output_maybe_trimmed
             uncertainty_disagreement_kl_output = np.zeros((sampler_patch_size, sampler_patch_size))
@@ -467,7 +485,6 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
             uncertainty_entropy_output[trim_top_idx: trim_bottom_idx, trim_left_idx: trim_right_idx] = uncertainty_entropy_output_maybe_trimmed
             # Only write inner part
             pred_output_inner = crop_data(pred_output, [output_patch_size, output_patch_size])
-            # uncertainty_output_inner = crop_data(uncertainty_output, [output_patch_size, output_patch_size])
             uncertainty_disagreement_ce_output_inner = crop_data(uncertainty_disagreement_ce_output, [output_patch_size, output_patch_size])
             uncertainty_disagreement_kl_output_inner = crop_data(uncertainty_disagreement_kl_output, [output_patch_size, output_patch_size])
             uncertainty_entropy_output_inner = crop_data(uncertainty_entropy_output, [output_patch_size, output_patch_size])
@@ -484,7 +501,6 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
                 # time writing start
             time_pre_writing = time.time()
             wsm_writer.write_tile(tile=pred_output_inner * y_batch_inner, coordinates=(int(x_coord), int(y_coord)))
-            # wsu_writer.write_tile(tile=uncertainty_output_inner * y_batch_inner, coordinates=(int(x_coord), int(y_coord)))
             wsu_ce_writer.write_tile(tile=uncertainty_disagreement_ce_output_inner * y_batch_inner, coordinates=(int(x_coord), int(y_coord)))
             wsu_kl_writer.write_tile(tile=uncertainty_disagreement_kl_output_inner * y_batch_inner, coordinates=(int(x_coord), int(y_coord)))
             wsu_entropy_writer.write_tile(tile=uncertainty_entropy_output_inner * y_batch_inner, coordinates=(int(x_coord), int(y_coord)))
