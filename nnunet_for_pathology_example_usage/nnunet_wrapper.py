@@ -1,5 +1,7 @@
 #!/usr/local/bin/python3
 
+# This is a modified version of DIAG's (private) nnunet_wrapper.py script, adapted for pathology use cases. Only kept functionality for training.
+
 import argparse
 import os
 import pickle
@@ -94,35 +96,43 @@ def read_json(filename: PathLike, *, ordered_dict: bool = True, **kwargs):
 def plan_train(argv):
     # Plan experiment, then train network
     parser = argparse.ArgumentParser()
+    
+    # Set these
     parser.add_argument('task', type=str)
     parser.add_argument('data', type=str)
-    parser.add_argument('--results', type=str, required=False)
-    parser.add_argument('--network', type=str, default='2d') # Changed default to 2d for pathology
-    parser.add_argument('--trainer', type=str, default='nnUNetTrainerV2')
+    parser.add_argument('--trainer', type=str, default='nnUNetTrainerV2_BN_pathology_DA_ignore0_hed005') # proposed trainer, or use version without _ignore0, depending on use case
+    parser.add_argument('--fold', type=str, default='0')
+    parser.add_argument('--custom_split', type=str, help='Path to a JSON file with a custom data split into five folds')
+    parser.add_argument('--plan_only', action='store_true', help='Run the planning step, but not the training step')
+
+    # Not fully explored yet, use with caution
     parser.add_argument('--trainer_kwargs', required=False, default="{}",
                         help="Use a dictionary in string format to specify keyword arguments. This will get"
                              " parsed into a dictionary, the values get correctly parsed to the data format"
                              " and passed to the trainer. Example (backslash included): \n"
                              r"--trainer_kwargs='{\"class_weights\":[0,2.00990337,1.42540704,2.13387239,0.85529504,0.592059,0.30040984,8.26874351],\"weight_dc\":0.3,\"weight_ce\":0.7}'")
-    parser.add_argument("--plans", type=str, default="nnUNetPlansv2.1", help="Can be used to specify a custom identifier for the plans file")
-    parser.add_argument("--planner3d", type=str, default="ExperimentPlanner3D_v21",
+    parser.add_argument('--pretrained_weights', type=str, required=False, default=None)
+
+    # DEFAULTS
+    parser.add_argument('--network', type=str, default='2d')
+    parser.add_argument("--plans", type=str, default="nnUNet_RGB_scaleTo_0_1_bs8_ps512", help="Can be used to specify a custom identifier for the plans file")
+    parser.add_argument("--planner2d", type=str, default="ExperimentPlanner2D_v21_RGB_scaleTo_0_1_bs8_ps512", 
+                        help="Name of the ExperimentPlanner class for the 2D U-Net. Default is 'None', so that the 2D U-Net is not configured, saving time during planning"
+                        "2D nnUNet default planner is 'ExperimentPlanner2D_v21_RGB_scaleTo_0_1_bs8_ps512'.",)
+    parser.add_argument("--planner3d", type=str, default="None",
                         help="Name of the ExperimentPlanner class for the full resolution 3D U-Net and U-Net cascade. "
                         "Default is ExperimentPlanner3D_v21. Can be 'None', in which case these U-Nets will not be "
                         "configured",)
-    parser.add_argument("--planner2d", type=str, default="None", 
-                        help="Name of the ExperimentPlanner class for the 2D U-Net. Default is 'None', so that the 2D U-Net is not configured, saving time during planning"
-                        "2D nnUNet default planner is 'ExperimentPlanner2D_v21'.",)
-    parser.add_argument('--fold', type=str, default='0')
-    parser.add_argument('--custom_split', type=str, help='Path to a JSON file with a custom data split into five folds')
-    parser.add_argument('--plan_only', action='store_true', help='Run the planning step, but not the training step')
+    parser.add_argument('--results', type=str, required=False)
+    
+    # These are never used in nnunet-for-pathology, but keep them for possible use cases and backward compatibility
     parser.add_argument('--validation_only', action='store_true',
                         help='Do no run network training, only the final validation step')
     parser.add_argument('--ensembling', action='store_true',
                         help='Export probability maps for ensembling during the final validation')
     parser.add_argument('--use_compressed_data', action='store_true',
                         help='Disable unpacking of compressed training data, use with caution')
-    parser.add_argument('--carbontracker', action='store_true', help='Enables tracking of energy consumption')
-    parser.add_argument('--pretrained_weights', type=str, required=False, default=None)
+    
     args = parser.parse_args(argv)
 
     # Set environment variables
@@ -138,7 +148,7 @@ def plan_train(argv):
     taskid = get_task_id(args.task)
     taskdir = datadir / 'nnUNet_preprocessed' / args.task
 
-    if path_exists(taskdir / args.plans):
+    if path_exists(taskdir / Path(str(args.plans) + '_stage0')):
         if args.custom_split:
             remote_splits_file = taskdir / 'splits_final.json'
             if not remote_splits_file.exists() or checksum(remote_splits_file) != checksum(args.custom_split):
@@ -256,7 +266,7 @@ def checkout(argv):
 
 
 if __name__ == '__main__':
-    # Very first argument determines action, note that all actions other than 'plan_train' were removed for pathology
+    # Very first argument determines action. Note that all actions other than 'plan_train' were removed for pathology
     actions = {
         'plan_train': plan_train,
     }
