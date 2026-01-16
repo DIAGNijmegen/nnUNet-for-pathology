@@ -1,0 +1,88 @@
+FROM ubuntu:22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN echo "PYTHONUNBUFFERED=1" >> /etc/environment && \
+    echo "OMP_NUM_THREADS=1" >> /etc/environment
+
+# Update package lists and install required packages
+RUN apt-get update && apt-get install -y \
+    libgeos-dev \
+    libcrypto++-dev \
+    libgomp1 \
+    libopenblas0-openmp \
+    libvips-dev \
+    openslide-tools \
+    python3 \
+    python3-pip \
+    git \
+    wget \
+    openssh-server \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install the ASAP package, first some dependencies
+RUN apt-get update && \
+    apt-get install --assume-yes \
+    libdcmtk16 \
+    libopencv-core4.5d \
+    libopencv-imgproc4.5d \
+    libqt5concurrent5 \
+    libqt5core5a \
+    libqt5gui5 \
+    libqt5widgets5
+
+RUN mkdir -p /usr/src/app/asap && \
+    wget "https://github.com/computationalpathologygroup/ASAP/releases/download/ASAP-2.1-(Nightly)/ASAP-2.1-Ubuntu2204.deb" -O /usr/src/app/asap/ASAP-2.1-Ubuntu2204.deb && \
+    apt-get install --assume-yes /usr/src/app/asap/ASAP-2.1-Ubuntu2204.deb && \
+    ldconfig && \
+    SITE_PACKAGES=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") && \
+    printf "/opt/ASAP/bin/\n" > "${SITE_PACKAGES}/asap.pth" && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python packages
+RUN python3 -m pip install --no-cache-dir \
+    numpy\<2 \
+    pandas \    
+    shapely \
+    albumentations==1.2.1 \
+    git+https://github.com/DIAGNijmegen/pathology-whole-slide-data@main \
+    acvl-utils==0.2 \
+    geojson \
+    ipympl \
+    scikit-learn \
+    pycm \
+    tqdm \
+    seaborn \
+    cryptography \
+    paramiko
+
+# === Setup user ===
+RUN useradd -ms /bin/bash user && \
+    (echo user ; echo user) | passwd user && \
+    gpasswd -a user _ssh && \
+    gpasswd -a user sudo
+
+# Clone and configure nnUNet-for-pathology v1
+RUN git clone https://github.com/DIAGNijmegen/nnUNet-for-pathology.git /home/user/nnunet && \
+    git -C /home/user/nnunet checkout nnunet_for_pathology_v1 && \
+    chown -R user /home/user/nnunet && \
+    pip3 install -e /home/user/nnunet
+
+# Copy the wrapper from nnUNet-for-pathology v1's example usage folder
+RUN cp /home/user/nnunet/nnunet_for_pathology_example_usage/nnunet_wrapper.py /home/user/nnunet_wrapper.py && \
+    sed -i '1s|^.*$|#!/usr/bin/python3|' /home/user/nnunet_wrapper.py && \
+    chmod +x /home/user/nnunet_wrapper.py && \
+    ln -s /home/user/nnunet_wrapper.py /usr/local/bin/nnunet
+
+# Clone and configure nnUNet-for-pathology v2
+RUN git clone https://github.com/DIAGNijmegen/nnUNet-for-pathology.git /home/user/nnunet_v2 && \
+    git -C /home/user/nnunet_v2 checkout nnunet_for_pathology_v2 && \
+    chown -R user /home/user/nnunet_v2 && \
+    pip3 install --no-use-pep517 -e /home/user/nnunet_v2
+
+# For (VS code) ssh connection 
+RUN mkdir /var/run/sshd
+
+ENTRYPOINT ["/bin/bash"]

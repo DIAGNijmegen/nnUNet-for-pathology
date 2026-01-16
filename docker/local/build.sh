@@ -1,9 +1,11 @@
 #!/bin/bash
 
-VERSION="v1.00"
+VERSION="v6.00"
+DOCKER_USERNAME="joeyspronck67"
 
-docker build -t joeyspronck67/nnunet_for_pathology/nnunet_for_pathology:$VERSION . && \
-docker push joeyspronck67/nnunet_for_pathology/nnunet_for_pathology:$VERSION && \
+docker build -t nnunet-for-pathology . && \
+docker tag nnunet-for-pathology $DOCKER_USERNAME/nnunet-for-pathology:$VERSION && \
+docker push $DOCKER_USERNAME/nnunet-for-pathology:$VERSION && \
 
-docker tag joeyspronck67/nnunet_for_pathology/nnunet_for_pathology:$VERSION joeyspronck67/nnunet_for_pathology/nnunet_for_pathology:latest
-docker push joeyspronck67/nnunet_for_pathology/nnunet_for_pathology:latest
+docker tag $DOCKER_USERNAME/nnunet-for-pathology:$VERSION $DOCKER_USERNAME/nnunet-for-pathology:latest
+docker push $DOCKER_USERNAME/nnunet-for-pathology:latest
