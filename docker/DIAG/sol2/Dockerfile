@@ -11,11 +11,22 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
-RUN python3 -m pip install shapely==1.7.1 \
+RUN python3 -m pip install --no-cache-dir \
+    numpy\<2 \
+    pandas \    
+    shapely \
     albumentations==1.2.1 \
     git+https://github.com/DIAGNijmegen/pathology-whole-slide-data@main \
     acvl-utils==0.2 \
-    carbontracker
+    geojson \
+    ipympl \
+    scikit-learn \
+    pycm \
+    tqdm \
+    seaborn \
+    carbontracker \
+    cryptography \
+    paramiko
 
 # Clone and configure nnUNet-for-pathology v1
 RUN git clone https://github.com/DIAGNijmegen/nnUNet-for-pathology.git /home/user/nnunet && \

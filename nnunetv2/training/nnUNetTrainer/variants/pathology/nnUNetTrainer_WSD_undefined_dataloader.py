@@ -72,7 +72,7 @@ class nnUNetTrainer_WSD_undefined_dataloader(nnUNetTrainer):
         self.wandb = True if 'WANDB_API_KEY' in os.environ else False
         self.aug = 'alb' if self.albumentations_aug else 'nnunet'
         self.iterator_template = f'wsd_{self.label_sampling_strategy}_iterator_{self.aug}_aug'
-        self.cpus = 4
+        self.cpus = 4 # can be overruled by dataset_json: see cpus = self.dataset_json['cpus']
 ###
         # super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, device)
         
@@ -649,6 +649,16 @@ class nnUNetTrainer_WSD_undefined_dataloader(nnUNetTrainer):
         empty_cache(self.device)
         self.print_to_log_file("Training done.")
 
+    # def decode_buffer_states(self, state_array):
+    #     state_mappings = {
+    #         'FREE': 1,
+    #         'AVAILABLE': 2,
+    #         'RESERVED': 3,
+    #         'PROCESSING': 4
+    #     }
+    #     state_count = {state: np.sum(state_array == state_mappings[state]) for state in state_mappings}
+    #     return state_count
+
     def decode_buffer_states(self, state_array):
         state_mappings = {
             'FREE': 1,
@@ -657,7 +667,28 @@ class nnUNetTrainer_WSD_undefined_dataloader(nnUNetTrainer):
             'PROCESSING': 4
         }
         state_count = {state: np.sum(state_array == state_mappings[state]) for state in state_mappings}
-        return state_count
+        sum_states = sum(state_count.values())
+        cpus = sum_states // 4
+        if state_count['AVAILABLE'] + state_count['PROCESSING'] == sum_states:
+            if cpus>1:
+                message = f'your iterator buffer is saturated.\n\t\tIf you see this all the time you probably dont need this many CPUs for the iterator. Currently using: {cpus} CPUs'
+            else:
+                message = ''
+        elif state_count['FREE'] > 0:
+            message = ''
+        elif (state_count['AVAILABLE'] == 0) or (state_count['AVAILABLE'] == 1):
+            message = f'\n\t\tYour iterator buffer is empty or almost empty.\n\t\tIf you see this all the time you may benifit from using more CPUs for the iterator. Currently using: {cpus} CPUs'
+        else: 
+            message = ''
+        return state_count, message
+
+    def maybe_print_buffer_states(self, iterator, idx=None):
+        state_array = iterator._buffer_factory.buffer_state_memory.get_state_buffer()
+        state_count, message = self.decode_buffer_states(state_array)
+        if idx is not None:
+            idx_string = f' (idx: {idx})'
+        if message:
+            print(f'\t\tBUFFER STATES{idx_string}: {state_count}, {message}', flush=True)
 
 ### RUN TRAINING        
     def run_training(self):
@@ -671,8 +702,9 @@ class nnUNetTrainer_WSD_undefined_dataloader(nnUNetTrainer):
                 train_outputs = []
                 for batch_id in range(15 if self.time else self.num_iterations_per_epoch): 
                     if batch_id % 10 == 0:
-                        state_array = self.dataloader_train._buffer_factory.buffer_state_memory.get_state_buffer()
-                        print(f'\t\tBUFFER STATES - batch {batch_id}: {self.decode_buffer_states(state_array)}')
+                        # state_array = self.dataloader_train._buffer_factory.buffer_state_memory.get_state_buffer()
+                        # print(f'\t\tBUFFER STATES - batch {batch_id}: {self.decode_buffer_states(state_array)}')
+                        self.maybe_print_buffer_states(self.dataloader_train, idx=batch_id)
                     train_outputs.append(self.train_step(next(self.dataloader_train))) 
                 self.on_train_epoch_end(train_outputs)
 

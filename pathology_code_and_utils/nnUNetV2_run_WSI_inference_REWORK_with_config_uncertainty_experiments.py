@@ -197,6 +197,17 @@ def softmax_list_and_mean_to_uncertainties(softmax_list, softmax_mean):
 
     return uncertainty_disagreement_ce, uncertainty_disagreement_kl, uncertainty_entropy
 
+def log_transform_from_float_to_uint8(arr, epsilon=1e-8):
+    arr = np.array(np.clip(arr, 0, 1))  # ensure values are in [0,1]
+    transformed = np.log1p(arr / epsilon) / np.log1p(1 / epsilon) # seems difficult, but is simply a stabalized log transform
+    return (transformed * 255).astype(np.uint8)
+
+# def inverse_log_transform_from_uint8_to_float(arr_uint8, epsilon=1e-8):
+#     arr = np.array(arr_uint8, dtype=np.float32) / 255.0
+#     original = epsilon * (np.expm1(arr * np.log1p(1 / epsilon)))
+#     return original.clip(0, 1)  # Ensure values are in [0,1]
+
+
 def get_trim_indexes(y_batch):
     """
     Using the y_mask / tissue-background mask we can check if there are
@@ -472,9 +483,23 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
             time_pre_uncertainty = time.time()
             # uncertainty = softmax_list_and_mean_to_uncertainty(softmax_list, softmax_mean)
             uncertainty_disagreement_ce, uncertainty_disagreement_kl, uncertainty_entropy = softmax_list_and_mean_to_uncertainties(softmax_list, softmax_mean)
-            uncertainty_disagreement_ce_output_maybe_trimmed = np.array((uncertainty_disagreement_ce.clip(0, 4) / 4 * 255).int()) 
-            uncertainty_disagreement_kl_output_maybe_trimmed = np.array((uncertainty_disagreement_kl * 255).int())
-            uncertainty_entropy_output_maybe_trimmed = np.array((uncertainty_entropy * 255).int())
+            # uncertainty_disagreement_ce_output_maybe_trimmed = np.array((uncertainty_disagreement_ce.clip(0, 4) / 4 * 255).int()) 
+            # uncertainty_disagreement_kl_output_maybe_trimmed = np.array((uncertainty_disagreement_kl * 255).int())
+            # uncertainty_entropy_output_maybe_trimmed = np.array((uncertainty_entropy * 255).int())
+            # --- CE ---
+            uncertainty_disagreement_ce_array = uncertainty_disagreement_ce.cpu().numpy()
+            uncertainty_disagreement_ce_array = np.clip(uncertainty_disagreement_ce_array, 0, 4) / 4
+            uncertainty_disagreement_ce_output_maybe_trimmed = (uncertainty_disagreement_ce_array * 255).astype(np.uint8)
+
+            # --- KL ---
+            uncertainty_disagreement_kl_array = uncertainty_disagreement_kl.cpu().numpy()
+            uncertainty_disagreement_kl_output_maybe_trimmed = log_transform_from_float_to_uint8(
+                uncertainty_disagreement_kl_array, epsilon=1e-8
+            )
+
+            # --- Entropy ---
+            entropy_array = uncertainty_entropy.cpu().numpy()
+            uncertainty_entropy_output_maybe_trimmed = (entropy_array * 255).astype(np.uint8)
             time_post_uncertainty = time.time()
             duration_uncertainty = time_post_uncertainty - time_pre_uncertainty
                 # time uncertainty end
