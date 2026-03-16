@@ -365,7 +365,7 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
     print(f'\n[NEXT MATCH] [{idx_match}/{len(matches_to_run)})]:', '\n\t', image_path, mask_path)
     
     ### CHECK IF WE NEED TO PROCESS THIS FILE
-    wsm_path = output_folder / (image_path.stem + '_nnunet.tif')
+    wsm_path = output_folder / (image_path.stem + '_nnunet.tif') if output_img is None else Path(output_img)
     # wsu_path = output_folder / (image_path.stem + '_uncertainty.tif')
     wsu_ce_path = output_folder / (image_path.stem + '_ce_disagreement_uncertainty.tif') if output_unc_ce is None else Path(output_unc_ce)
     wsu_kl_path = output_folder / (image_path.stem + '_kl_disagreement_uncertainty.tif') if output_unc_kl is None else Path(output_unc_kl)
@@ -408,11 +408,16 @@ for idx_match, (image_path, mask_path) in enumerate(matches_to_run):
     wsu_kl_writer = WholeSlideMaskWriter()  # whole slide uncertainty disagreement kl
     wsu_entropy_writer = WholeSlideMaskWriter()  # whole slide uncertainty entropy
     # Create files
-    wsm_path_local = local_output_folder / (image_path.stem + '_nnunet.tif')
+    # wsm_path_local = local_output_folder / (image_path.stem + '_nnunet.tif')
+    # # wsu_path_local = local_output_folder / (image_path.stem + '_uncertainty.tif')
+    # wsu_ce_path_local = local_output_folder / (image_path.stem + '_ce_disagreement_uncertainty.tif')
+    # wsu_kl_path_local = local_output_folder / (image_path.stem + '_kl_disagreement_uncertainty.tif')
+    # wsu_entropy_path_local = local_output_folder / (image_path.stem + '_entropy_uncertainty.tif')
+    wsm_path_local = local_output_folder / (wsm_path.name)
     # wsu_path_local = local_output_folder / (image_path.stem + '_uncertainty.tif')
-    wsu_ce_path_local = local_output_folder / (image_path.stem + '_ce_disagreement_uncertainty.tif')
-    wsu_kl_path_local = local_output_folder / (image_path.stem + '_kl_disagreement_uncertainty.tif')
-    wsu_entropy_path_local = local_output_folder / (image_path.stem + '_entropy_uncertainty.tif')
+    wsu_ce_path_local = local_output_folder / (wsu_ce_path.name)
+    wsu_kl_path_local = local_output_folder / (wsu_kl_path.name)
+    wsu_entropy_path_local = local_output_folder / (wsu_entropy_path.name)
     wsm_writer.write(path=wsm_path_local, spacing=real_spacing, dimensions=shape,
                     tile_shape=(output_patch_size, output_patch_size))
     # wsu_writer.write(path=wsu_path_local, spacing=real_spacing,
